@@ -27,6 +27,8 @@ import (
 	"image/color"
 	"io"
 	"math"
+	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -145,34 +147,42 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	gamma := args.Gamma
 	luminance := args.Luminance
 
+	wg := sync.WaitGroup{}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			i := x + y*w
+		wg.Add(1)
+		go func(y int) {
+			defer wg.Done()
 
-			// The RGBA func returns alpha-premultiplied values in the [0, 0xffff] range.
-			a_color_R, a_color_G, a_color_B, _ := image_a.At(x, y).RGBA()
-			const maxValue = float64(0xffff)
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				i := x + y*w
 
-			a_x, a_y, a_z := adobe_rgb_to_xyz(
-				math.Pow(float64(a_color_R)/maxValue, gamma),
-				math.Pow(float64(a_color_G)/maxValue, gamma),
-				math.Pow(float64(a_color_B)/maxValue, gamma),
-			)
-			_, a_a[i], a_b[i] = xyz_to_lab(a_x, a_y, a_z)
+				// The RGBA func returns alpha-premultiplied values in the [0, 0xffff] range.
+				a_color_R, a_color_G, a_color_B, _ := image_a.At(x, y).RGBA()
+				const maxValue = float64(0xffff)
 
-			b_color_R, b_color_G, b_color_B, _ := image_b.At(x, y).RGBA()
+				a_x, a_y, a_z := adobe_rgb_to_xyz(
+					math.Pow(float64(a_color_R)/maxValue, gamma),
+					math.Pow(float64(a_color_G)/maxValue, gamma),
+					math.Pow(float64(a_color_B)/maxValue, gamma),
+				)
+				_, a_a[i], a_b[i] = xyz_to_lab(a_x, a_y, a_z)
 
-			b_x, b_y, b_z := adobe_rgb_to_xyz(
-				math.Pow(float64(b_color_R)/maxValue, gamma),
-				math.Pow(float64(b_color_G)/maxValue, gamma),
-				math.Pow(float64(b_color_B)/maxValue, gamma),
-			)
-			_, b_a[i], b_b[i] = xyz_to_lab(b_x, b_y, b_z)
+				b_color_R, b_color_G, b_color_B, _ := image_b.At(x, y).RGBA()
 
-			a_lum[i] = a_y * luminance
-			b_lum[i] = b_y * luminance
-		}
+				b_x, b_y, b_z := adobe_rgb_to_xyz(
+					math.Pow(float64(b_color_R)/maxValue, gamma),
+					math.Pow(float64(b_color_G)/maxValue, gamma),
+					math.Pow(float64(b_color_B)/maxValue, gamma),
+				)
+				_, b_a[i], b_b[i] = xyz_to_lab(b_x, b_y, b_z)
+
+				a_lum[i] = a_y * luminance
+				b_lum[i] = b_y * luminance
+			}
+		}(y)
 	}
+
+	wg.Wait()
 
 	num_one_degree_pixels := to_degrees(2 * math.Tan(args.FieldOfView*to_radians(.5)))
 	pixels_per_degree := float64(w) / num_one_degree_pixels
@@ -195,8 +205,8 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 		f_freq[i] = csf_max / csf(cpd[i], 100.0)
 	}
 
-	var pixels_failed uint
-	var error_sum float64
+	var pixels_failed atomic.Uint64
+	var error_sum uint64 // will be used with the atomic* funcs as a float64
 
 	output_verbose.Write([]byte("Constructing Laplacian Pyramids\n"))
 
@@ -204,82 +214,83 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 
 	la := newPyramid(a_lum, w, h)
 	lb := newPyramid(b_lum, w, h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			index := y*w + x
 
-			adapt :=
-				math.Max((la.get_value(x, y, adaptation_level)+
-					lb.get_value(x, y, adaptation_level))*
-					0.5,
+	wg = sync.WaitGroup{}
+	for y := 0; y < h; y++ {
+		wg.Add(1)
+		go func(y int) {
+			defer wg.Done()
+			for x := 0; x < w; x++ {
+				index := y*w + x
+
+				adapt := math.Max(
+					(la.get_value(x, y, adaptation_level)+lb.get_value(x, y, adaptation_level))*0.5,
 					1e-5)
 
-			var (
-				sum_contrast float64
-				factor       float64
-			)
+				var (
+					sum_contrast float64
+					factor       float64
+				)
 
-			for i := 0; i < MAX_PYR_LEVELS-2; i++ {
-				n1 := math.Abs(la.get_value(x, y, i) -
-					la.get_value(x, y, i+1))
+				for i := 0; i < MAX_PYR_LEVELS-2; i++ {
+					n1 := math.Abs(la.get_value(x, y, i) - la.get_value(x, y, i+1))
+					n2 := math.Abs(lb.get_value(x, y, i) - lb.get_value(x, y, i+1))
 
-				n2 := math.Abs(lb.get_value(x, y, i) -
-					lb.get_value(x, y, i+1))
-
-				numerator := math.Max(n1, n2)
-				d1 := math.Abs(la.get_value(x, y, i+2))
-				d2 := math.Abs(lb.get_value(x, y, i+2))
-				denominator :=
-					math.Max(math.Max(d1, d2), 1e-5)
-				contrast := numerator / denominator
-				f_mask :=
-					mask(contrast * csf(cpd[i], adapt))
-				factor += contrast * f_freq[i] * f_mask
-				sum_contrast += contrast
-			}
-			sum_contrast = math.Max(sum_contrast, 1e-5)
-			factor /= sum_contrast
-			factor = math.Min(math.Max(factor, 1.0), 10.0)
-			delta := math.Abs(la.get_value(x, y, 0) -
-				lb.get_value(x, y, 0))
-			error_sum += delta
-			pass := true
-
-			// Pure luminance test.
-			if delta > factor*tvi(adapt) {
-				pass = false
-			}
-
-			if !args.LuminanceOnly {
-				// CIE delta E test with modifications.
-				color_scale := args.ColorFactor
-
-				// Ramp down the color test in scotopic regions.
-				if adapt < 10.0 {
-					// Don't do color test at all.
-					color_scale = 0.0
+					numerator := math.Max(n1, n2)
+					d1 := math.Abs(la.get_value(x, y, i+2))
+					d2 := math.Abs(lb.get_value(x, y, i+2))
+					denominator := math.Max(math.Max(d1, d2), 1e-5)
+					contrast := numerator / denominator
+					f_mask := mask(contrast * csf(cpd[i], adapt))
+					factor += contrast * f_freq[i] * f_mask
+					sum_contrast += contrast
 				}
+				sum_contrast = math.Max(sum_contrast, 1e-5)
+				factor /= sum_contrast
+				factor = math.Min(math.Max(factor, 1.0), 10.0)
+				delta := math.Abs(la.get_value(x, y, 0) -
+					lb.get_value(x, y, 0))
+				atomicAddFloat64(&error_sum, delta)
+				pass := true
 
-				da := a_a[index] - b_a[index]
-				db := a_b[index] - b_b[index]
-				delta_e := (da*da + db*db) * color_scale
-				error_sum += delta_e
-				if delta_e > factor {
+				// Pure luminance test.
+				if delta > factor*tvi(adapt) {
 					pass = false
 				}
-			}
 
-			if pass {
-				diffImg.SetRGBA(int(x), int(y), color.RGBA{0, 0, 0, 255})
-			} else {
-				pixels_failed++
-				diffImg.SetRGBA(int(x), int(y), color.RGBA{0, 0, 255, 255})
+				if !args.LuminanceOnly {
+					// CIE delta E test with modifications.
+					color_scale := args.ColorFactor
+
+					// Ramp down the color test in scotopic regions.
+					if adapt < 10.0 {
+						// Don't do color test at all.
+						color_scale = 0.0
+					}
+
+					da := a_a[index] - b_a[index]
+					db := a_b[index] - b_b[index]
+					delta_e := (da*da + db*db) * color_scale
+					atomicAddFloat64(&error_sum, delta_e)
+					if delta_e > factor {
+						pass = false
+					}
+				}
+
+				if pass {
+					diffImg.SetRGBA(int(x), int(y), color.RGBA{0, 0, 0, 255})
+				} else {
+					pixels_failed.Add(1)
+					diffImg.SetRGBA(int(x), int(y), color.RGBA{0, 0, 255, 255})
+				}
 			}
-		}
+		}(y)
 	}
 
+	wg.Wait()
+
 	var (
-		perceptuallyIdentical bool = pixels_failed < args.ThresholdPixels
+		perceptuallyIdentical bool = uint(pixels_failed.Load()) < args.ThresholdPixels
 		reason                string
 	)
 	if perceptuallyIdentical {
@@ -290,8 +301,23 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 
 	return perceptuallyIdentical, CompareResult{
 		Reason:          reason,
-		NumPixelsFailed: uint64(pixels_failed),
-		ErrorSum:        error_sum,
+		NumPixelsFailed: pixels_failed.Load(),
+		ErrorSum:        atomicLoadFloat64(&error_sum),
 		ImageDifference: diffImg,
+	}
+}
+
+func atomicLoadFloat64(v *uint64) float64 {
+	return math.Float64frombits(atomic.LoadUint64(v))
+}
+
+func atomicAddFloat64(v *uint64, delta float64) (new float64) {
+	for {
+		old := atomic.LoadUint64(v)
+		new := math.Float64frombits(old) + delta
+
+		if atomic.CompareAndSwapUint64(v, old, math.Float64bits(new)) {
+			return new
+		}
 	}
 }

@@ -20,6 +20,10 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 
 package perceptualdiff
 
+import (
+	"sync"
+)
+
 // The maximum amount of pyramid levels to construct.
 const MAX_PYR_LEVELS = 8
 
@@ -50,41 +54,47 @@ func newPyramid(image []float64, width, height int) *pyramid {
 }
 
 func (l *pyramid) get_value(x, y, level int) float64 {
-	index := x + y*int(l.width)
-	// assert(level < MAX_PYR_LEVELS)
-	return l.levels[level][index]
+	// inlining the `level` calculation makes the func inlineable.
+	return l.levels[level][x+y*l.width]
 }
 
 func (l *pyramid) convolve(a, b []float64) {
 	if len(a) == 0 || len(b) == 0 {
 		panic("empty source or destination")
 	}
+
+	wg := sync.WaitGroup{}
+
 	for y := 0; y < l.height; y++ {
-		for x := 0; x < l.width; x++ {
-			index := y*l.width + x
-			var result float64
-			for i := -2; i <= 2; i++ {
-				for j := -2; j <= 2; j++ {
-					nx := x + i
-					ny := y + j
-					nx = abs(nx)
-					ny = abs(ny)
-					if nx >= l.width {
-						nx = 2*l.width - nx - 1
-					}
-					if ny >= l.height {
-						ny = 2*l.height - ny - 1
-					}
+		wg.Add(1)
+		go func(y int) {
+			defer wg.Done()
+			for x := 0; x < l.width; x++ {
+				index := y*l.width + x
+				var result float64
+				for i := -2; i <= 2; i++ {
+					for j := -2; j <= 2; j++ {
+						nx := x + i
+						ny := y + j
+						nx = abs(nx)
+						ny = abs(ny)
+						if nx >= l.width {
+							nx = 2*l.width - nx - 1
+						}
+						if ny >= l.height {
+							ny = 2*l.height - ny - 1
+						}
 
-					kernel := []float64{0.05, 0.25, 0.4, 0.25, 0.05}
-
-					result +=
-						kernel[i+2] * kernel[j+2] * b[ny*l.width+nx]
+						kernel := []float64{0.05, 0.25, 0.4, 0.25, 0.05}
+						result += kernel[i+2] * kernel[j+2] * b[ny*l.width+nx]
+					}
 				}
+				a[index] = result
 			}
-			a[index] = result
-		}
+		}(y)
 	}
+
+	wg.Wait()
 }
 
 func abs(x int) int {
