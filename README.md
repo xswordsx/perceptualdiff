@@ -17,7 +17,7 @@ package main
 
 import (
 	"image"
-	_ "image/png"
+	"image/png"
 	"fmt"
 	"os"
 
