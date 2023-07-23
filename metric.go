@@ -31,6 +31,8 @@ import (
 	"sync/atomic"
 )
 
+// Possible reasons explaining why the algorithm got to
+// the result that it got.
 const (
 	ReasonDimensionMismatch = "Image dimensions do not match"
 	ReasonBinaryIdentical   = "Images are binary identical"
@@ -69,39 +71,26 @@ type CompareResult struct {
 	ImageDifference *image.RGBA // Bitmask that shows which pixels failed the check.
 }
 
-var (
-	// DefaultParameters are the default parameters for the [Yee_compare] func.
-	DefaultParameters Parameters
-
-	global_white struct{ x, y, z float64 }
-)
-
-func init() {
-	x, y, z := adobe_rgb_to_xyz(1, 1, 1)
-	global_white.x = x
-	global_white.y = y
-	global_white.z = z
-
-	DefaultParameters = Parameters{
-		LuminanceOnly:   false,
-		FieldOfView:     45.0,
-		Gamma:           2.2,
-		Luminance:       100.0,
-		ThresholdPixels: 100,
-		ColorFactor:     1.0,
-	}
+// DefaultParameters are the default parameters for the [Yee_compare] func.
+var DefaultParameters Parameters = Parameters{
+	LuminanceOnly:   false,
+	FieldOfView:     45.0,
+	Gamma:           2.2,
+	Luminance:       100.0,
+	ThresholdPixels: 100,
+	ColorFactor:     1.0,
 }
 
 // Image comparison metric using Yee's method.
 //
 // References: A Perceptual Metric for Production Testing, Hector Yee,
 // Journal of Graphics Tools 2004
-func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io.Writer) (
+func YeeCompare(image_a, image_b image.Image, args Parameters, output io.Writer) (
 	perceptually_identical bool,
-	output CompareResult,
+	results CompareResult,
 ) {
-	if output_verbose == nil {
-		output_verbose = io.Discard
+	if output == nil {
+		output = io.Discard
 	}
 
 	a_size := image_a.Bounds().Size()
@@ -142,7 +131,7 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	a_b := make([]float64, dim)
 	b_b := make([]float64, dim)
 
-	_, _ = output_verbose.Write([]byte("Converting RGB to XYZ\n"))
+	_, _ = output.Write([]byte("Converting RGB to XYZ\n"))
 
 	gamma := args.Gamma
 	luminance := args.Luminance
@@ -187,7 +176,7 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	num_one_degree_pixels := to_degrees(2 * math.Tan(args.FieldOfView*to_radians(.5)))
 	pixels_per_degree := float64(w) / num_one_degree_pixels
 
-	_, _ = output_verbose.Write([]byte("Performing test\n"))
+	_, _ = output.Write([]byte("Performing test\n"))
 
 	adaptation_level := adaptation(num_one_degree_pixels)
 
@@ -208,7 +197,7 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	var pixels_failed atomic.Uint64
 	var error_sum uint64 // will be used with the atomic* funcs as a float64
 
-	_, _ = output_verbose.Write([]byte("Constructing Laplacian Pyramids\n"))
+	_, _ = output.Write([]byte("Constructing Laplacian Pyramids\n"))
 
 	diffImg := image.NewRGBA(image_a.Bounds())
 

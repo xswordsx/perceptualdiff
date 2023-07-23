@@ -22,6 +22,15 @@ package perceptualdiff
 
 import "math"
 
+var white struct{ x, y, z float64 }
+
+func init() {
+	x, y, z := adobe_rgb_to_xyz(1, 1, 1)
+	white.x = x
+	white.y = y
+	white.z = z
+}
+
 func to_radians(degrees float64) float64 {
 	return degrees * math.Pi / 180.0
 }
@@ -88,9 +97,9 @@ func xyz_to_lab(x, y, z float64) (l, a, b float64) {
 	const epsilon = 216.0 / 24389.0
 	const kappa = 24389.0 / 27.0
 	var r = [3]float64{
-		x / global_white.x,
-		y / global_white.y,
-		z / global_white.z,
+		x / white.x,
+		y / white.y,
+		z / white.z,
 	}
 	var f [3]float64
 	for i := 0; i < 3; i++ {
