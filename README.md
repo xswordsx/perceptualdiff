@@ -6,8 +6,6 @@ A program that compares two images using a perceptually based image metric.
 
 This is a Go-port of the [perceptualdiff tool](https://github.com/myint/perceptualdiff).
 
-**:warning: This is still in alpha! API changes may occur at any moment!**
-
 ## Usage
 
 For a more detailed description refer to the [GoDoc](https://pkg.go.dev/github.com/xswordsx/perceptualdiff).
