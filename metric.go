@@ -142,7 +142,7 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	a_b := make([]float64, dim)
 	b_b := make([]float64, dim)
 
-	output_verbose.Write([]byte("Converting RGB to XYZ\n"))
+	_, _ = output_verbose.Write([]byte("Converting RGB to XYZ\n"))
 
 	gamma := args.Gamma
 	luminance := args.Luminance
@@ -187,7 +187,7 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	num_one_degree_pixels := to_degrees(2 * math.Tan(args.FieldOfView*to_radians(.5)))
 	pixels_per_degree := float64(w) / num_one_degree_pixels
 
-	output_verbose.Write([]byte("Performing test\n"))
+	_, _ = output_verbose.Write([]byte("Performing test\n"))
 
 	adaptation_level := adaptation(num_one_degree_pixels)
 
@@ -208,7 +208,7 @@ func YeeCompare(image_a, image_b image.Image, args Parameters, output_verbose io
 	var pixels_failed atomic.Uint64
 	var error_sum uint64 // will be used with the atomic* funcs as a float64
 
-	output_verbose.Write([]byte("Constructing Laplacian Pyramids\n"))
+	_, _ = output_verbose.Write([]byte("Constructing Laplacian Pyramids\n"))
 
 	diffImg := image.NewRGBA(image_a.Bounds())
 
