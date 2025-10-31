@@ -20,6 +20,9 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 
 // Package perceptualdiff is a Go port of
 // https://github.com/myint/perceptualdiff.
+//
+// You can read about the metric behind the comparison at
+// https://pdiff.sourceforge.net/metric.html.
 package perceptualdiff
 
 import (
@@ -71,7 +74,7 @@ type CompareResult struct {
 	ImageDifference *image.RGBA // Bitmask that shows which pixels failed the check.
 }
 
-// DefaultParameters are the default parameters for the [Yee_compare] func.
+// DefaultParameters are the default parameters for the [Compare] func.
 var DefaultParameters Parameters = Parameters{
 	LuminanceOnly:   false,
 	FieldOfView:     45.0,
