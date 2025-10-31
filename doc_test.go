@@ -19,7 +19,7 @@ func Example_basic() {
 	image_a, _, _ := image.Decode(img_a_fd)
 	image_b, _, _ := image.Decode(img_b_fd)
 
-	identical, result := perceptualdiff.YeeCompare(
+	identical, result := perceptualdiff.Compare(
 		image_a, image_b,
 		perceptualdiff.DefaultParameters, // or make your own
 		os.Stdout,                        // passing nil discards logs

@@ -85,7 +85,7 @@ func TestYeeCompare(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			identical, _ := perceptualdiff.YeeCompare(imgA, imgB, perceptualdiff.DefaultParameters, nil)
+			identical, _ := perceptualdiff.Compare(imgA, imgB, perceptualdiff.DefaultParameters, nil)
 			if identical != tc.shouldPass {
 				not := ""
 				if !tc.shouldPass {
@@ -112,7 +112,7 @@ func BenchmarkYeeCompare(b *testing.B) {
 
 			b.StartTimer()
 			for i := 0; i < b.N; i++ {
-				perceptualdiff.YeeCompare(imgA, imgB, perceptualdiff.DefaultParameters, nil)
+				perceptualdiff.Compare(imgA, imgB, perceptualdiff.DefaultParameters, nil)
 			}
 		})
 	}
