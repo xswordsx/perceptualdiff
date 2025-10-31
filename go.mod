@@ -1,5 +1,5 @@
 module github.com/xswordsx/perceptualdiff
 
-go 1.13
+go 1.21.0
 
-require golang.org/x/image v0.9.0
+require golang.org/x/image v0.24.0
